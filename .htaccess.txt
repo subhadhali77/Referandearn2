@@ -1,5 +1,3 @@
-DirectoryIndex index.php
-
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteBase /
@@ -7,6 +5,8 @@ DirectoryIndex index.php
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteRule . /index.php [L]
 </IfModule>
+
+DirectoryIndex index.php
 
 <Files "users.json">
     <IfModule mod_authz_core.c>
