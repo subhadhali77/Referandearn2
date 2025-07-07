@@ -8,14 +8,11 @@ RUN apt-get update && \
     docker-php-ext-install intl && \
     a2enmod rewrite
 
-# Copy files and set permissions
+# Copy all app files
 COPY . .
-RUN chown -R www-data:www-data /var/www/html && \
-    chmod 775 users.json error.log
 
-# Environment variables
-ENV BOT_TOKEN=${BOT_TOKEN}
-ENV BOT_USERNAME=${BOT_USERNAME}
-ENV WEBHOOK_SECRET=${WEBHOOK_SECRET}
+# Fix permissions for all files
+RUN chown -R www-data:www-data /var/www/html && \
+    chmod -R 755 /var/www/html
 
 EXPOSE 80
