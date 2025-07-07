@@ -1,13 +1,12 @@
-version: '3.8'
-
+version: '3'
 services:
   web:
     build: .
     ports:
       - "8000:80"
     environment:
-      BOT_TOKEN: "your_test_token"
-      BOT_USERNAME: "your_test_bot"
-      WEBHOOK_SECRET: "your_secret"
+      - BOT_TOKEN=YOUR_TELEGRAM_BOT_TOKEN
+      - BOT_USERNAME=YOUR_BOT_USERNAME
+      - WEBHOOK_SECRET=YOUR_SECRET
     volumes:
       - .:/var/www/html
