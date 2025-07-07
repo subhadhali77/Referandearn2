@@ -1,12 +1,15 @@
 <?php
-$botToken = getenv('BOT_TOKEN');
-$botUsername = getenv('BOT_USERNAME');
-$webhookSecret = getenv('WEBHOOK_SECRET');
+$botToken = getenv('BOT_TOKEN') ?: '';
+$botUsername = getenv('BOT_USERNAME') ?: '';
+$webhookSecret = getenv('WEBHOOK_SECRET') ?: '';
 
 if (!$botToken || !$botUsername || !$webhookSecret) {
-    http_response_code(500);
-    error_log("Missing required environment variables");
-    die("Server configuration error");
+    if (php_sapi_name() !== 'cli') {
+        echo "<h1>Bot is not fully configured</h1>";
+        echo "<p>Missing environment variables. Please set BOT_TOKEN, BOT_USERNAME, and WEBHOOK_SECRET.</p>";
+        http_response_code(200);
+        exit;
+    }
 }
 
 define('BOT_TOKEN', $botToken);
@@ -35,51 +38,29 @@ function logError($message) {
 }
 
 function loadUsers() {
-    try {
-        if (!file_exists(USERS_FILE)) {
-            file_put_contents(USERS_FILE, json_encode([]));
-            chmod(USERS_FILE, 0664);
-        }
-        $data = file_get_contents(USERS_FILE);
-        return json_decode($data, true) ?: [];
-    } catch (Exception $e) {
-        logError("Load users failed: " . $e->getMessage());
-        return [];
+    if (!file_exists(USERS_FILE)) {
+        file_put_contents(USERS_FILE, json_encode([]));
+        chmod(USERS_FILE, 0664);
     }
+    $data = file_get_contents(USERS_FILE);
+    return json_decode($data, true) ?: [];
 }
 
 function saveUsers($users) {
-    try {
-        file_put_contents(USERS_FILE, json_encode($users, JSON_PRETTY_PRINT));
-        return true;
-    } catch (Exception $e) {
-        logError("Save users failed: " . $e->getMessage());
-        return false;
-    }
+    file_put_contents(USERS_FILE, json_encode($users, JSON_PRETTY_PRINT));
 }
 
 function sendMessage($chat_id, $text, $keyboard = null) {
-    try {
-        $params = [
-            'chat_id' => $chat_id,
-            'text' => $text,
-            'parse_mode' => 'HTML'
-        ];
-
-        if ($keyboard) {
-            $params['reply_markup'] = json_encode([
-                'inline_keyboard' => $keyboard
-            ]);
-        }
-
-        $url = API_URL . 'sendMessage?' . http_build_query($params);
-        $context = stream_context_create(['http' => ['ignore_errors' => true]]);
-        file_get_contents($url, false, $context);
-        return true;
-    } catch (Exception $e) {
-        logError("Send message failed: " . $e->getMessage());
-        return false;
+    $params = [
+        'chat_id' => $chat_id,
+        'text' => $text,
+        'parse_mode' => 'HTML'
+    ];
+    if ($keyboard) {
+        $params['reply_markup'] = json_encode(['inline_keyboard' => $keyboard]);
     }
+    $url = API_URL . 'sendMessage?' . http_build_query($params);
+    @file_get_contents($url);
 }
 
 function getMainKeyboard() {
@@ -111,7 +92,7 @@ function processUpdate($update) {
             $ref = explode(' ', $text)[1] ?? null;
             if ($ref && !$users[$chat_id]['referred_by']) {
                 foreach ($users as $id => $user) {
-                    if (isset($user['ref_code']) && $user['ref_code'] === $ref && $id != $chat_id) {
+                    if ($user['ref_code'] === $ref && $id != $chat_id) {
                         $users[$chat_id]['referred_by'] = $id;
                         $users[$id]['referrals']++;
                         $users[$id]['balance'] += 50;
@@ -148,7 +129,7 @@ function processUpdate($update) {
 
         switch ($data) {
             case 'earn':
-                $time_diff = time() - ($users[$chat_id]['last_earn'] ?? 0);
+                $time_diff = time() - $users[$chat_id]['last_earn'];
                 if ($time_diff < 60) {
                     $remaining = 60 - $time_diff;
                     $msg = "⏳ Please wait $remaining seconds before earning again!";
@@ -167,18 +148,14 @@ function processUpdate($update) {
             case 'leaderboard':
                 $leaderboard = [];
                 foreach ($users as $id => $user) {
-                    if (isset($user['balance'])) {
-                        $leaderboard[$id] = $user['balance'];
-                    }
+                    $leaderboard[$id] = $user['balance'];
                 }
                 arsort($leaderboard);
                 $top = array_slice($leaderboard, 0, 5, true);
-
                 $msg = "🏆 Top Earners\n\n";
                 $i = 1;
                 foreach ($top as $id => $bal) {
-                    $username = isset($users[$id]['username']) ? "@{$users[$id]['username']}" : "User $id";
-                    $msg .= "$i. $username: $bal points\n";
+                    $msg .= "$i. User $id: $bal points\n";
                     $i++;
                 }
                 break;
@@ -208,24 +185,19 @@ function processUpdate($update) {
                        "💰 <b>Earn</b>: Get 10 points every minute\n" .
                        "👥 <b>Refer</b>: Earn 50 points per friend\n" .
                        "🏆 <b>Leaderboard</b>: See top earners\n" .
-                       "🏧 <b>Withdraw</b>: Min 100 points (crypto/paypal)\n\n" .
-                       "Need more help? Contact @support";
+                       "🏧 <b>Withdraw</b>: Min 100 points (crypto/paypal)";
                 break;
         }
 
-        try {
-            $params = [
-                'chat_id' => $chat_id,
-                'message_id' => $message_id,
-                'text' => $msg,
-                'parse_mode' => 'HTML',
-                'reply_markup' => json_encode(['inline_keyboard' => getMainKeyboard()])
-            ];
-            $url = API_URL . 'editMessageText?' . http_build_query($params);
-            file_get_contents($url);
-        } catch (Exception $e) {
-            logError("Edit message failed: " . $e->getMessage());
-        }
+        $params = [
+            'chat_id' => $chat_id,
+            'message_id' => $message_id,
+            'text' => $msg,
+            'parse_mode' => 'HTML',
+            'reply_markup' => json_encode(['inline_keyboard' => getMainKeyboard()])
+        ];
+        $url = API_URL . 'editMessageText?' . http_build_query($params);
+        @file_get_contents($url);
     }
 
     saveUsers($users);
@@ -234,12 +206,10 @@ function processUpdate($update) {
 $content = file_get_contents("php://input");
 $update = json_decode($content, true);
 
-if ($update) {
-    if (isset($update['message']) || isset($update['callback_query'])) {
-        processUpdate($update);
-        http_response_code(200);
-        exit;
-    }
+if ($update && (isset($update['message']) || isset($update['callback_query']))) {
+    processUpdate($update);
+    http_response_code(200);
+    exit;
 }
 
 echo "<h1>Telegram Earning Bot</h1>";
