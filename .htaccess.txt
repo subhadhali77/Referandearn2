@@ -1,0 +1,17 @@
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule . /index.php [L]
+</IfModule>
+
+<Files "users.json">
+    Order allow,deny
+    Deny from all
+</Files>
+
+<Files "error.log">
+    Order allow,deny
+    Deny from all
+</Files>
