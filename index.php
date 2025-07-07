@@ -1,15 +1,11 @@
 <?php
-$botToken = getenv('BOT_TOKEN') ?: '';
-$botUsername = getenv('BOT_USERNAME') ?: '';
-$webhookSecret = getenv('WEBHOOK_SECRET') ?: '';
+$botToken = getenv('BOT_TOKEN');
+$botUsername = getenv('BOT_USERNAME');
 
-if (!$botToken || !$botUsername || !$webhookSecret) {
-    if (php_sapi_name() !== 'cli') {
-        echo "<h1>Bot is not fully configured</h1>";
-        echo "<p>Missing environment variables. Please set BOT_TOKEN, BOT_USERNAME, and WEBHOOK_SECRET.</p>";
-        http_response_code(200);
-        exit;
-    }
+if (!$botToken || !$botUsername) {
+    http_response_code(500);
+    error_log("Missing required environment variables");
+    die("Missing BOT_TOKEN and BOT_USERNAME. Please set them.");
 }
 
 define('BOT_TOKEN', $botToken);
@@ -19,16 +15,11 @@ define('USERS_FILE', 'users.json');
 define('ERROR_LOG', 'error.log');
 
 if (isset($_GET['set_webhook'])) {
-    if ($_GET['set_webhook'] === $webhookSecret) {
-        $webhook_url = 'https://' . $_SERVER['HTTP_HOST'] . '/';
-        $result = file_get_contents(API_URL . 'setWebhook?url=' . urlencode($webhook_url));
-        echo "<h1>Webhook Configuration</h1>";
-        echo "<p>Webhook set to: $webhook_url</p>";
-        echo "<pre>Response: " . htmlspecialchars($result) . "</pre>";
-        exit;
-    }
-    http_response_code(401);
-    echo "Unauthorized access";
+    $webhook_url = 'https://' . $_SERVER['HTTP_HOST'] . '/';
+    $result = file_get_contents(API_URL . 'setWebhook?url=' . urlencode($webhook_url));
+    echo "<h1>Webhook Configuration</h1>";
+    echo "<p>Webhook set to: $webhook_url</p>";
+    echo "<pre>Response: " . htmlspecialchars($result) . "</pre>";
     exit;
 }
 
@@ -60,7 +51,7 @@ function sendMessage($chat_id, $text, $keyboard = null) {
         $params['reply_markup'] = json_encode(['inline_keyboard' => $keyboard]);
     }
     $url = API_URL . 'sendMessage?' . http_build_query($params);
-    @file_get_contents($url);
+    file_get_contents($url);
 }
 
 function getMainKeyboard() {
@@ -152,6 +143,7 @@ function processUpdate($update) {
                 }
                 arsort($leaderboard);
                 $top = array_slice($leaderboard, 0, 5, true);
+
                 $msg = "🏆 Top Earners\n\n";
                 $i = 1;
                 foreach ($top as $id => $bal) {
@@ -185,7 +177,8 @@ function processUpdate($update) {
                        "💰 <b>Earn</b>: Get 10 points every minute\n" .
                        "👥 <b>Refer</b>: Earn 50 points per friend\n" .
                        "🏆 <b>Leaderboard</b>: See top earners\n" .
-                       "🏧 <b>Withdraw</b>: Min 100 points (crypto/paypal)";
+                       "🏧 <b>Withdraw</b>: Min 100 points (crypto/paypal)\n\n" .
+                       "Need more help? Contact @support";
                 break;
         }
 
@@ -197,7 +190,7 @@ function processUpdate($update) {
             'reply_markup' => json_encode(['inline_keyboard' => getMainKeyboard()])
         ];
         $url = API_URL . 'editMessageText?' . http_build_query($params);
-        @file_get_contents($url);
+        file_get_contents($url);
     }
 
     saveUsers($users);
@@ -214,6 +207,5 @@ if ($update && (isset($update['message']) || isset($update['callback_query']))) 
 
 echo "<h1>Telegram Earning Bot</h1>";
 echo "<p>Bot is running successfully!</p>";
-echo "<p>Environment: " . (getenv('RENDER') ? 'Render.com' : 'Local') . "</p>";
-echo "<p>To set webhook, visit: <a href='?set_webhook=$webhookSecret'>Setup URL</a></p>";
+echo "<p>To set webhook, visit: <a href='?set_webhook'>Setup URL</a></p>";
 ?>
