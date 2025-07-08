@@ -1,12 +1,13 @@
-version: '3'
+version: '3.8'
+
 services:
   web:
     build: .
     ports:
       - "8000:80"
     environment:
-      - BOT_TOKEN=YOUR_TELEGRAM_BOT_TOKEN
-      - BOT_USERNAME=YOUR_BOT_USERNAME
-      - WEBHOOK_SECRET=YOUR_SECRET
+      - BOT_TOKEN=7161099062:AAEdfx_iS1WwL3E9IGrBDZ6oBq1UMaTVwgU
+      - BOT_USERNAME=referandearn1k25_bot
+      - WEBHOOK_SECRET=SuperSecret123
     volumes:
       - .:/var/www/html
