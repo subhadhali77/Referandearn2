@@ -1,11 +1,12 @@
 <?php
 $botToken = getenv('BOT_TOKEN');
 $botUsername = getenv('BOT_USERNAME');
+$webhookSecret = getenv('WEBHOOK_SECRET');
 
-if (!$botToken || !$botUsername) {
+if (!$botToken || !$botUsername || !$webhookSecret) {
     http_response_code(500);
     error_log("Missing required environment variables");
-    die("Missing BOT_TOKEN and BOT_USERNAME. Please set them.");
+    die("Server configuration error");
 }
 
 define('BOT_TOKEN', $botToken);
@@ -15,11 +16,12 @@ define('USERS_FILE', 'users.json');
 define('ERROR_LOG', 'error.log');
 
 if (isset($_GET['set_webhook'])) {
-    $webhook_url = 'https://' . $_SERVER['HTTP_HOST'] . '/';
-    $result = file_get_contents(API_URL . 'setWebhook?url=' . urlencode($webhook_url));
-    echo "<h1>Webhook Configuration</h1>";
-    echo "<p>Webhook set to: $webhook_url</p>";
-    echo "<pre>Response: " . htmlspecialchars($result) . "</pre>";
+    if ($_GET['set_webhook'] === $webhookSecret) {
+        $webhook_url = 'https://' . $_SERVER['HTTP_HOST'] . '/';
+        file_get_contents(API_URL . 'setWebhook?url=' . urlencode($webhook_url));
+        exit;
+    }
+    http_response_code(401);
     exit;
 }
 
@@ -51,7 +53,8 @@ function sendMessage($chat_id, $text, $keyboard = null) {
         $params['reply_markup'] = json_encode(['inline_keyboard' => $keyboard]);
     }
     $url = API_URL . 'sendMessage?' . http_build_query($params);
-    file_get_contents($url);
+    $context = stream_context_create(['http' => ['ignore_errors' => true]]);
+    file_get_contents($url, false, $context);
 }
 
 function getMainKeyboard() {
@@ -73,6 +76,7 @@ function processUpdate($update) {
             $users[$chat_id] = [
                 'balance' => 0,
                 'last_earn' => 0,
+                'earn_log' => [],
                 'referrals' => 0,
                 'ref_code' => substr(md5($chat_id . time()), 0, 8),
                 'referred_by' => null
@@ -93,12 +97,11 @@ function processUpdate($update) {
                 }
             }
 
-            $msg = "👋 Welcome to Earning Bot!\n\n" .
-                   "💰 Earn points by clicking the Earn button\n" .
-                   "👥 Invite friends using your referral code\n" .
-                   "🏧 Withdraw your earnings anytime\n\n" .
-                   "Your referral code: <b>{$users[$chat_id]['ref_code']}</b>";
-
+            $msg = "👋 Welcome!\n\n"
+                 . "💰 Earn points using the Earn button\n"
+                 . "👥 Invite friends with your referral code\n"
+                 . "🏧 Withdraw anytime\n\n"
+                 . "Your referral code: <b>{$users[$chat_id]['ref_code']}</b>";
             sendMessage($chat_id, $msg, getMainKeyboard());
         }
 
@@ -112,6 +115,7 @@ function processUpdate($update) {
             $users[$chat_id] = [
                 'balance' => 0,
                 'last_earn' => 0,
+                'earn_log' => [],
                 'referrals' => 0,
                 'ref_code' => substr(md5($chat_id . time()), 0, 8),
                 'referred_by' => null
@@ -121,19 +125,39 @@ function processUpdate($update) {
         switch ($data) {
             case 'earn':
                 $time_diff = time() - $users[$chat_id]['last_earn'];
-                if ($time_diff < 60) {
-                    $remaining = 60 - $time_diff;
-                    $msg = "⏳ Please wait $remaining seconds before earning again!";
-                } else {
-                    $earn = 10;
-                    $users[$chat_id]['balance'] += $earn;
-                    $users[$chat_id]['last_earn'] = time();
-                    $msg = "✅ You earned $earn points!\n\nNew balance: {$users[$chat_id]['balance']}";
+                $today = date('Y-m-d');
+                if (!isset($users[$chat_id]['earn_log'][$today])) {
+                    $users[$chat_id]['earn_log'][$today] = 0;
                 }
+                if ($users[$chat_id]['earn_log'][$today] >= 10) {
+                    $msg = "⚠️ Daily limit reached!";
+                    break;
+                }
+                if ($time_diff < 60) {
+                    $msg = "⏳ Wait " . (60 - $time_diff) . " seconds.";
+                    break;
+                }
+                $adLink = "https://www.profitableratecpm.com/zwkb15jq4?key=e2e955e0e5da5ef9ac896b08cb169010";
+                $msg = "🎥 Watch this Ad to earn 10 points!\n\n👉 $adLink\n\nWhen done, tap ✅ Confirm.";
+                $keyboard = [[['text' => '✅ Confirm', 'callback_data' => 'confirm_earn']]];
+                sendMessage($chat_id, $msg, $keyboard);
+                return;
+
+            case 'confirm_earn':
+                $time_diff = time() - $users[$chat_id]['last_earn'];
+                if ($time_diff < 60) {
+                    $msg = "⏳ Wait " . (60 - $time_diff) . " seconds.";
+                    break;
+                }
+                $users[$chat_id]['balance'] += 10;
+                $users[$chat_id]['last_earn'] = time();
+                $today = date('Y-m-d');
+                $users[$chat_id]['earn_log'][$today]++;
+                $msg = "✅ You earned 10 points!\nNew balance: {$users[$chat_id]['balance']}";
                 break;
 
             case 'balance':
-                $msg = "💳 Your Balance\n\nPoints: {$users[$chat_id]['balance']}\nReferrals: {$users[$chat_id]['referrals']}";
+                $msg = "💳 Balance: {$users[$chat_id]['balance']}\nReferrals: {$users[$chat_id]['referrals']}";
                 break;
 
             case 'leaderboard':
@@ -143,8 +167,7 @@ function processUpdate($update) {
                 }
                 arsort($leaderboard);
                 $top = array_slice($leaderboard, 0, 5, true);
-
-                $msg = "🏆 Top Earners\n\n";
+                $msg = "🏆 Top Earners\n";
                 $i = 1;
                 foreach ($top as $id => $bal) {
                     $msg .= "$i. User $id: $bal points\n";
@@ -153,32 +176,22 @@ function processUpdate($update) {
                 break;
 
             case 'referrals':
-                $msg = "👥 Referral System\n\n" .
-                       "Your code: <b>{$users[$chat_id]['ref_code']}</b>\n" .
-                       "Total referrals: {$users[$chat_id]['referrals']}\n\n" .
-                       "Invite link:\nhttps://t.me/" . BOT_USERNAME . "?start={$users[$chat_id]['ref_code']}\n\n" .
-                       "🎁 50 points per referral!";
+                $msg = "👥 Your code: <b>{$users[$chat_id]['ref_code']}</b>\nTotal referrals: {$users[$chat_id]['referrals']}\n\nInvite:\nhttps://t.me/" . BOT_USERNAME . "?start={$users[$chat_id]['ref_code']}\n\n🎁 50 points per referral!";
                 break;
 
             case 'withdraw':
                 $min = 100;
                 if ($users[$chat_id]['balance'] < $min) {
-                    $needed = $min - $users[$chat_id]['balance'];
-                    $msg = "🏧 Withdrawal\n\nMinimum: $min points\nYour balance: {$users[$chat_id]['balance']}\n\nYou need $needed more points!";
+                    $msg = "🏧 Minimum $min points.\nBalance: {$users[$chat_id]['balance']}";
                 } else {
                     $amount = $users[$chat_id]['balance'];
                     $users[$chat_id]['balance'] = 0;
-                    $msg = "🏧 Withdrawal Requested!\n\nAmount: $amount points\n\nOur team will process your request within 24 hours.";
+                    $msg = "🏧 Withdrawal requested: $amount points.";
                 }
                 break;
 
             case 'help':
-                $msg = "❓ Help Center\n\n" .
-                       "💰 <b>Earn</b>: Get 10 points every minute\n" .
-                       "👥 <b>Refer</b>: Earn 50 points per friend\n" .
-                       "🏆 <b>Leaderboard</b>: See top earners\n" .
-                       "🏧 <b>Withdraw</b>: Min 100 points (crypto/paypal)\n\n" .
-                       "Need more help? Contact @support";
+                $msg = "❓ Help\n\n💰 Earn: 10 points every minute\n👥 Refer: 50 points per friend\n🏧 Withdraw: Min 100 points.";
                 break;
         }
 
@@ -198,14 +211,9 @@ function processUpdate($update) {
 
 $content = file_get_contents("php://input");
 $update = json_decode($content, true);
-
 if ($update && (isset($update['message']) || isset($update['callback_query']))) {
     processUpdate($update);
     http_response_code(200);
     exit;
 }
-
-echo "<h1>Telegram Earning Bot</h1>";
-echo "<p>Bot is running successfully!</p>";
-echo "<p>To set webhook, visit: <a href='?set_webhook'>Setup URL</a></p>";
 ?>
